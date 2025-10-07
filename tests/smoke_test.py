@@ -2,6 +2,9 @@ import sys, os
 from pipeline import run_pipeline
 
 
+# Usage:
+# python -m tests.smoke_test test_images/dummy.png
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python tests/smoke_test.py <image_path>")
