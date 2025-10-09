@@ -10,3 +10,5 @@ async def recognize_plate(file: UploadFile = File(...)):
     data = await file.read()
     result = run_pipeline(data)
     return result.model_dump()
+
+
