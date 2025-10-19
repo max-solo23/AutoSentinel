@@ -1,4 +1,7 @@
+"""FastAPI entry point exposing the number-plate recognition pipeline."""
+
 from fastapi import FastAPI, UploadFile, File
+
 from pipeline import run_pipeline
 
 
