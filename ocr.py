@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable, List, Optional, Tuple
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -203,7 +206,7 @@ def _create_easyocr_reader(languages: Tuple[str, ...]):
     import easyocr
 
     use_gpu = _detect_gpu()
-    print(f"[ocr] EasyOCR init. gpu={use_gpu}")
+    log.info("EasyOCR init. gpu=%s", use_gpu)
     return easyocr.Reader(list(languages), gpu=use_gpu)
 
 

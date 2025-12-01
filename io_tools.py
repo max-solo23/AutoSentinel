@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import io
+import logging
 from typing import Any
 
 import numpy as np
 from PIL import Image, UnidentifiedImageError
+
+log = logging.getLogger(__name__)
 
 
 def load_image_from_bytes(data: bytes) -> np.ndarray:
@@ -23,7 +26,7 @@ def load_image_from_bytes(data: bytes) -> np.ndarray:
             img.load()
             return np.asarray(img.convert("RGB"))
     except UnidentifiedImageError:
-        print(f"[io] Unidentified image. len={len(data)} first16={data[:16]!r}")
+        log.warning("Unidentified image. len=%s first16=%r", len(data), data[:16])
         raise
 
 

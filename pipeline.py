@@ -52,7 +52,6 @@ class PlatePipeline:
     def run(self, image_bytes: bytes) -> PlateResult:
         """Run the full recognition pipeline on encoded image bytes."""
         image = load_image_from_bytes(image_bytes)
-        print(f"[pipeline] loaded image: shape={getattr(image, 'shape', None)}")
 
         if _debug_is_enabled():
             debug_cfg = resolve_debug_config(save_debug=True)
@@ -64,12 +63,10 @@ class PlatePipeline:
         if roi.size == 0:
             return PlateResult(status="not_found", plate_text="", confidence=0.0, bbox=bbox)
 
-        artifacts = self._prepare_roi_for_ocr(roi)
-        text, ocr_conf = self.recognizer.read(artifacts.binarized)
-        if not text:
-            text, ocr_conf = self.recognizer.read(artifacts.raw)
+        artifacts = prepare_roi_for_ocr(roi, self.config)
+        text, ocr_conf = read_with_fallback(self.recognizer, artifacts)
 
-        confidence = self._blend_confidence(detector_conf, ocr_conf)
+        confidence = blend_confidence(detector_conf, ocr_conf, weights=self.config.conf_weights)
         status = "success" if text else "not_found"
         return PlateResult(
             status=status,
@@ -77,31 +74,6 @@ class PlatePipeline:
             confidence=round(confidence, 3),
             bbox=bbox,
         )
-
-    # ------------------------------------------------------------------ #
-    # Helper methods                                                     #
-    # ------------------------------------------------------------------ #
-    def _prepare_roi_for_ocr(self, roi: np.ndarray) -> ROIArtifacts:
-        padded = _pad_roi(roi, pad_ratio=self.config.pad_ratio)
-        resized = _ensure_min_height(padded, min_height=self.config.min_roi_height)
-        gray = _ensure_grayscale(resized)
-
-        blurred = cv2.GaussianBlur(gray, (0, 0), self.config.blur_sigma)
-        sharpened = cv2.addWeighted(gray, self.config.sharpen_amount, blurred, -0.7, 0)
-        thresh = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-        closed = cv2.morphologyEx(
-            thresh,
-            cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-            iterations=1,
-        )
-        return ROIArtifacts(raw=resized, binarized=closed)
-
-    def _blend_confidence(self, detector_conf: float, ocr_conf: float) -> float:
-        det_weight, ocr_weight = self.config.conf_weights
-        det = min(max(detector_conf, 0.0), 1.0)
-        ocr = min(max(ocr_conf, 0.0), 1.0)
-        return det * det_weight + ocr * ocr_weight
 
 
 _DEFAULT_PIPELINE: Optional[PlatePipeline] = None
@@ -122,6 +94,37 @@ def run_pipeline(image_bytes: bytes) -> PlateResult:
 # ---------------------------------------------------------------------- #
 # Standalone helpers (kept small for readability)                        #
 # ---------------------------------------------------------------------- #
+def read_with_fallback(recognizer: PlateRecognizer, artifacts: ROIArtifacts) -> Tuple[str, float]:
+    text, conf = recognizer.read(artifacts.binarized)
+    if text:
+        return text, conf
+    return recognizer.read(artifacts.raw)
+
+
+def prepare_roi_for_ocr(roi: np.ndarray, config: PipelineConfig) -> ROIArtifacts:
+    padded = _pad_roi(roi, pad_ratio=config.pad_ratio)
+    resized = _ensure_min_height(padded, min_height=config.min_roi_height)
+    gray = _ensure_grayscale(resized)
+
+    blurred = cv2.GaussianBlur(gray, (0, 0), config.blur_sigma)
+    sharpened = cv2.addWeighted(gray, config.sharpen_amount, blurred, -0.7, 0)
+    thresh = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    closed = cv2.morphologyEx(
+        thresh,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        iterations=1,
+    )
+    return ROIArtifacts(raw=resized, binarized=closed)
+
+
+def blend_confidence(detector_conf: float, ocr_conf: float, *, weights: Tuple[float, float]) -> float:
+    det_weight, ocr_weight = weights
+    det = min(max(detector_conf, 0.0), 1.0)
+    ocr = min(max(ocr_conf, 0.0), 1.0)
+    return det * det_weight + ocr * ocr_weight
+
+
 def _pad_roi(roi: np.ndarray, *, pad_ratio: float) -> np.ndarray:
     height, width = roi.shape[:2]
     pad = int(pad_ratio * max(height, width))
@@ -159,4 +162,7 @@ __all__ = [
     "ROIArtifacts",
     "get_pipeline",
     "run_pipeline",
+    "prepare_roi_for_ocr",
+    "blend_confidence",
+    "read_with_fallback",
 ]

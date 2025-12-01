@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -8,6 +9,8 @@ import cv2
 import numpy as np
 
 from custom_types import PlateBBox
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -25,7 +28,7 @@ class PlateDetector:
     def __init__(self, config: DetectorConfig | None = None) -> None:
         self.config = config or DetectorConfig()
         self._model = None
-        self._model_available = False
+        self._load_attempted = False
 
     def detect(self, image: np.ndarray) -> Tuple[PlateBBox, float]:
         """
@@ -46,7 +49,7 @@ class PlateDetector:
                 verbose=False,
             )
         except Exception as exc:  # pragma: no cover - defensive fallback
-            print(f"[detector] YOLO inference error: {exc}. Falling back to stub.")
+            log.warning("YOLO inference error: %s. Falling back to stub.", exc)
             return self._stub_bbox(image)
 
         if not results or results[0].boxes is None or len(results[0].boxes) == 0:
@@ -87,30 +90,29 @@ class PlateDetector:
     # Internals                                                             #
     # --------------------------------------------------------------------- #
     def _ensure_model(self):
-        if self._model is not None or self._model_available:
+        if self._model is not None:
             return self._model
+        if self._load_attempted:
+            return None
 
         model_path = os.getenv("AUTOSENTINEL_YOLO", self.config.model_path)
+        self._load_attempted = True
         try:
             from ultralytics import YOLO  # imported lazily
         except Exception as exc:  # pragma: no cover - import issues
-            print(f"[detector] YOLO import failed: {exc}. Using stub detector.")
-            self._model_available = False
+            log.warning("YOLO import failed: %s. Using stub detector.", exc)
             return None
 
         if not os.path.exists(model_path):
-            print(f"[detector] Model not found at '{model_path}'. Using stub detector.")
-            self._model_available = False
+            log.info("Model not found at '%s'. Using stub detector.", model_path)
             return None
 
         try:
             self._model = YOLO(model_path)
-            self._model_available = True
-            print(f"[detector] YOLO model loaded: {model_path}")
+            log.info("YOLO model loaded: %s", model_path)
         except Exception as exc:  # pragma: no cover - runtime issues
-            print(f"[detector] YOLO load failed: {exc}. Using stub detector.")
+            log.warning("YOLO load failed: %s. Using stub detector.", exc)
             self._model = None
-            self._model_available = False
         return self._model
 
     @staticmethod
